@@ -1,0 +1,123 @@
+import os, glob, re
+import numpy as np
+import pandas as pd
+import plotly.graph_objects as go
+import plotly.express as px
+
+FOLDER = r""   # <-- ΒΑΛΕ ΕΔΩ ΤΟ PATH ΣΟΥ
+WL_MIN, WL_MAX, STEP = 200, 2501, 5
+grid = np.arange(WL_MIN, WL_MAX + STEP, STEP)
+
+def load_curve_csv(path: str) -> pd.DataFrame:
+    df = pd.read_csv(path)
+    df = df.iloc[:, :2].copy()
+    df.columns = ["wl", "T"]
+    df["wl"] = pd.to_numeric(df["wl"], errors="coerce")
+    df["T"]  = pd.to_numeric(df["T"],  errors="coerce")
+    df = df.dropna().sort_values("wl")
+    return df
+
+def to_percent(df: pd.DataFrame) -> pd.DataFrame:
+    mx = df["T"].max()
+    if mx <= 1.2:
+        df = df.copy()
+        df["T"] *= 100.0
+    return df
+
+def parse_state_and_base(filename_no_ext: str):
+    name_u = filename_no_ext.upper()
+    if "_TRANSPARENT" in name_u:
+        return "TRANSPARENT", re.split(r"_TRANSPARENT", filename_no_ext, flags=re.IGNORECASE)[0]
+    if "_MIRROR" in name_u:
+        return "MIRROR", re.split(r"_MIRROR", filename_no_ext, flags=re.IGNORECASE)[0]
+    return None, None
+
+def interp_to_grid(df: pd.DataFrame, grid_nm: np.ndarray) -> np.ndarray:
+    wl = df["wl"].to_numpy()
+    T  = df["T"].to_numpy()
+    return np.interp(grid_nm, wl, T, left=np.nan, right=np.nan)
+
+# === Load + interpolate ===
+systems = {}  # {base: {"COLD": arr%, "HOT": arr%}}
+for path in sorted(glob.glob(os.path.join(FOLDER, "*.csv"))):
+    fname = os.path.splitext(os.path.basename(path))[0]
+    state, base = parse_state_and_base(fname)
+    if state is None:
+        continue
+
+    df = to_percent(load_curve_csv(path))
+    df = df[(df["wl"] >= WL_MIN) & (df["wl"] <= WL_MAX)]
+    if df.empty:
+        continue
+
+    systems.setdefault(base, {})[state] = interp_to_grid(df, grid)
+
+keys = sorted([k for k, v in systems.items() if "TRANSPARENT" in v and "MIRROR" in v])
+print(len(keys))
+if not keys:
+    raise RuntimeError("Δεν βρέθηκαν ζευγάρια TRANSPARENT/MIRROR. Έλεγξε ονόματα αρχείων και φάκελο.")
+
+# === Colors (one per system) ===
+palette = px.colors.qualitative.Dark24  # 24 distinct colors
+def color_for(i): return palette[i % len(palette)]
+
+# === Build interactive figure ===
+fig = go.Figure()
+
+for i, k in enumerate(keys):
+    col = color_for(i)
+
+    cold = systems[k]["TRANSPARENT"]
+    hot  = systems[k]["MIRROR"]
+
+    mc = ~np.isnan(cold)
+    mh = ~np.isnan(hot)
+
+    label = k.replace("GC_", "")
+
+    # COLD: solid
+    fig.add_trace(go.Scatter(
+        x=grid[mc], y=cold[mc],
+        mode="lines",
+        name=label,                 # legend entry (ONE per system)
+        legendgroup=label,          # group cold+hot together
+        line=dict(color=col, width=2, dash="solid"),
+        hovertemplate="System: %{legendgroup}<br>State: TRANSPARENT<br>λ=%{x} nm<br>T=%{y:.2f}%<extra></extra>"
+    ))
+
+    # HOT: dashed (same color) - hide from legend to avoid duplicate entry
+    fig.add_trace(go.Scatter(
+        x=grid[mh], y=hot[mh],
+        mode="lines",
+        name=label + " (MIRROR)",
+        legendgroup=label,
+        showlegend=False,           # IMPORTANT: no duplicate legend
+        line=dict(color=col, width=2, dash="dash"),
+        hovertemplate="System: %{legendgroup}<br>State: MIRROR<br>λ=%{x} nm<br>T=%{y:.2f}%<extra></extra>"
+    ))
+
+fig.update_layout(
+    title="Transmittance spectra per system (TRANSPARENT solid / MIRROR dashed)",
+    xaxis_title="Wavelength (nm)",
+    yaxis_title="Transmittance (%)",
+    hovermode="x unified",
+    legend_title="Click to hide/show systems",
+    template="plotly_white",
+    width=1200, height=650
+)
+
+# Create the configuration dictionary enabling edits
+interactive_config = {
+    'editable': True,
+    'edits': {
+        'legendText': True,  # Specifically allow editing legend text
+        'titleText': True,   # Also allows editing the main title
+        'axisTitleText': True # Also allows editing axis titles
+    }
+}
+
+# 1) Open in browser from Python:
+fig.show(config=interactive_config)
+
+# 2) Αν θες να το έχεις ως αρχείο (offline):
+#fig.write_html("spectra_interactive.html", include_plotlyjs="cdn")

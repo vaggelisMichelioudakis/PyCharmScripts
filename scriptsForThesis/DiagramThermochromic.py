@@ -106,8 +106,18 @@ fig.update_layout(
     width=1200, height=650
 )
 
-# 1) Ανοίγει σε browser από Python:
-fig.show()
+# Create the configuration dictionary enabling edits
+interactive_config = {
+    'editable': True,
+    'edits': {
+        'legendText': True,  # Specifically allow editing legend text
+        'titleText': True,   # Also allows editing the main title
+        'axisTitleText': True # Also allows editing axis titles
+    }
+}
+
+# 1) Open in browser from Python:
+fig.show(config=interactive_config)
 
 # 2) Αν θες να το έχεις ως αρχείο (offline):
 #fig.write_html("spectra_interactive.html", include_plotlyjs="cdn")
