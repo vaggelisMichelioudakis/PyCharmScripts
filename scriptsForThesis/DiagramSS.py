@@ -4,7 +4,7 @@ import pandas as pd
 import plotly.graph_objects as go
 import plotly.express as px
 
-FOLDER = r""  # <-- ΒΑΛΕ ΕΔΩ ΤΟ PATH ΣΟΥ
+FOLDER = r"Digitzed_SS_CSV"  # <-- ΒΑΛΕ ΕΔΩ ΤΟ PATH ΣΟΥ
 WL_MIN, WL_MAX, STEP = 200, 2501, 5
 grid = np.arange(WL_MIN, WL_MAX + STEP, STEP)
 
